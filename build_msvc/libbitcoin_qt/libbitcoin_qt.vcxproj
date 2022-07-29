@@ -53,6 +53,7 @@
     <ClCompile Include="..\..\src\qt\transactiondesc.cpp" />
     <ClCompile Include="..\..\src\qt\transactiondescdialog.cpp" />
     <ClCompile Include="..\..\src\qt\transactionfilterproxy.cpp" />
+    <ClCompile Include="..\..\src\qt\transactionoverviewwidget.cpp" />
     <ClCompile Include="..\..\src\qt\transactionrecord.cpp" />
     <ClCompile Include="..\..\src\qt\transactiontablemodel.cpp" />
     <ClCompile Include="..\..\src\qt\transactionview.cpp" />
@@ -136,20 +137,6 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <PreprocessorDefinitions>_AMD64_;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>$(QtIncludes);$(GeneratedFilesOutDir)\..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-    </ClCompile>
-  </ItemDefinitionGroup>
-
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <ClCompile>
-      <PreprocessorDefinitions>_X86_;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>$(QtIncludes);$(GeneratedFilesOutDir)\..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-    </ClCompile>
-  </ItemDefinitionGroup>
-
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-    <ClCompile>
-      <PreprocessorDefinitions>_X86_;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(QtIncludes);$(GeneratedFilesOutDir)\..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
   </ItemDefinitionGroup>

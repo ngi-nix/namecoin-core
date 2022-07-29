@@ -1,14 +1,16 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2020 The Bitcoin Core developers
+// Copyright (c) 2009-2021 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #ifndef BITCOIN_CONSENSUS_PARAMS_H
 #define BITCOIN_CONSENSUS_PARAMS_H
 
-#include <amount.h>
+#include <consensus/amount.h>
 #include <uint256.h>
+
 #include <limits>
+#include <map>
 
 #include <memory>
 
@@ -96,7 +98,7 @@ enum BuriedDeployment : int16_t {
     DEPLOYMENT_CSV,
     DEPLOYMENT_SEGWIT,
 };
-constexpr bool ValidDeployment(BuriedDeployment dep) { return DEPLOYMENT_HEIGHTINCB <= dep && dep <= DEPLOYMENT_SEGWIT; }
+constexpr bool ValidDeployment(BuriedDeployment dep) { return dep <= DEPLOYMENT_SEGWIT; }
 
 enum DeploymentPos : uint16_t {
     DEPLOYMENT_TESTDUMMY,
@@ -104,18 +106,18 @@ enum DeploymentPos : uint16_t {
     // NOTE: Also add new deployments to VersionBitsDeploymentInfo in deploymentinfo.cpp
     MAX_VERSION_BITS_DEPLOYMENTS
 };
-constexpr bool ValidDeployment(DeploymentPos dep) { return DEPLOYMENT_TESTDUMMY <= dep && dep <= DEPLOYMENT_TAPROOT; }
+constexpr bool ValidDeployment(DeploymentPos dep) { return dep < MAX_VERSION_BITS_DEPLOYMENTS; }
 
 /**
  * Struct for each individual consensus rule change using BIP9.
  */
 struct BIP9Deployment {
     /** Bit position to select the particular bit in nVersion. */
-    int bit;
+    int bit{28};
     /** Start MedianTime for version bits miner confirmation. Can be a date in the past */
-    int64_t nStartTime;
+    int64_t nStartTime{NEVER_ACTIVE};
     /** Timeout/expiry MedianTime for the deployment attempt. */
-    int64_t nTimeout;
+    int64_t nTimeout{NEVER_ACTIVE};
     /** If lock in occurs, delay activation until at least this block
      *  height.  Note that activation will only occur on a retarget
      *  boundary.
@@ -143,6 +145,13 @@ struct BIP9Deployment {
 struct Params {
     uint256 hashGenesisBlock;
     int nSubsidyHalvingInterval;
+    /**
+     * Hashes of blocks that
+     * - are known to be consensus valid, and
+     * - buried in the chain, and
+     * - fail if the default script verify flags are applied.
+     */
+    std::map<uint256, uint32_t> script_flag_exceptions;
     /** Block height at with BIP16 becomes active */
     int BIP16Height;
     /** Block height and hash at which BIP34 becomes active */

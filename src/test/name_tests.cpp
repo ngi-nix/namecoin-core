@@ -1,4 +1,4 @@
-// Copyright (c) 2014-2021 Daniel Kraft
+// Copyright (c) 2014-2022 Daniel Kraft
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -133,6 +133,7 @@ BOOST_AUTO_TEST_CASE (name_database)
 
   std::set<valtype> setExpected, setRet;
 
+  LOCK (cs_main);
   CCoinsViewCache& view = m_node.chainman->ActiveChainstate ().CoinsTip ();
 
   setExpected.clear ();
@@ -470,6 +471,7 @@ NameIterationTester::remove (const std::string& n)
 
 BOOST_AUTO_TEST_CASE (name_iteration)
 {
+  LOCK (cs_main);
   NameIterationTester tester(m_node.chainman->ActiveChainstate ().CoinsDB ());
 
   tester.verify ();
@@ -712,6 +714,51 @@ BOOST_AUTO_TEST_CASE (name_tx_verification)
   BOOST_CHECK (!CheckNameTransaction (mtx, 100012, viewClean, state, 0));
 }
 
+BOOST_AUTO_TEST_CASE (name_firstupdate_salt_length)
+{
+  const valtype name = DecodeName ("x/test-name", NameEncoding::ASCII);
+  const valtype value = DecodeName ("{}", NameEncoding::ASCII);
+  const CScript addr = getTestAddress ();
+
+  const valtype shortRand(19, 'x');
+  const valtype correctRand(20, 'x');
+  const valtype longRand(21, 'x');
+
+  CCoinsView dummyView;
+
+  /* Builds and checks a firstupdate transaction for our test name and
+     the given rand value and verify flags.  */
+  const auto checkRand = [&] (const valtype& rand, const unsigned flags)
+    {
+      CCoinsViewCache view(&dummyView);
+
+      const CScript scrNew = CNameScript::buildNameNew (addr, name, rand);
+      const CScript scrFirst = CNameScript::buildNameFirstupdate (addr, name,
+                                                                  value, rand);
+
+      const COutPoint inCoin = addTestCoin (addr, 1, view);
+      const COutPoint inNew = addTestCoin (scrNew, 100'000, view);
+
+      CMutableTransaction mtx;
+      mtx.vin.emplace_back (inCoin);
+      mtx.vin.emplace_back (inNew);
+      mtx.vout.emplace_back (COIN, scrFirst);
+      mtx.SetNamecoin ();
+
+      TxValidationState state;
+      return CheckNameTransaction (mtx, 100'100, view, state, flags);
+    };
+
+  BOOST_CHECK (checkRand (shortRand, 0));
+  BOOST_CHECK (!checkRand (shortRand, SCRIPT_VERIFY_NAMES_LONG_SALT));
+
+  BOOST_CHECK (checkRand (correctRand, 0));
+  BOOST_CHECK (checkRand (correctRand, SCRIPT_VERIFY_NAMES_LONG_SALT));
+
+  BOOST_CHECK (!checkRand (longRand, 0));
+  BOOST_CHECK (!checkRand (longRand, SCRIPT_VERIFY_NAMES_LONG_SALT));
+}
+
 /* ************************************************************************** */
 
 BOOST_AUTO_TEST_CASE (name_updates_undo)
@@ -803,6 +850,7 @@ BOOST_AUTO_TEST_CASE (name_expire_utxo)
 
   /* Use a "real" backing view, since GetNamesForHeight calls through
      to the base in any case.  */
+  LOCK (cs_main);
   CCoinsViewCache view(&m_node.chainman->ActiveChainstate ().CoinsTip ());
 
   const COutPoint coinId1 = addTestCoin (upd1, 100000, view);

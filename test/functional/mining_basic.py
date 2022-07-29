@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2014-2020 The Bitcoin Core developers
+# Copyright (c) 2014-2021 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test mining RPCs
@@ -31,6 +31,8 @@ from test_framework.util import (
     assert_equal,
     assert_raises_rpc_error,
 )
+from test_framework.wallet import MiniWallet
+
 
 VERSIONBITS_TOP_BITS = 0x20000000
 VERSIONBITS_DEPLOYMENT_TESTDUMMY_BIT = 28
@@ -53,32 +55,30 @@ class MiningTest(BitcoinTestFramework):
         self.setup_clean_chain = True
         self.supports_cli = False
 
-    def skip_test_if_missing_module(self):
-        self.skip_if_no_wallet()
-
     def mine_chain(self):
         self.log.info('Create some old blocks')
         for t in range(TIME_GENESIS_BLOCK, TIME_GENESIS_BLOCK + 200 * 600, 600):
             self.nodes[0].setmocktime(t)
-            self.nodes[0].generate(1)
+            self.generate(self.wallet, 1, sync_fun=self.no_op)
         mining_info = self.nodes[0].getmininginfo()
         assert_equal(mining_info['blocks'], 200)
         assert_equal(mining_info['currentblocktx'], 0)
         assert_equal(mining_info['currentblockweight'], 4000)
 
         self.log.info('test blockversion')
-        self.restart_node(0, extra_args=['-mocktime={}'.format(t), '-blockversion=133'])
+        self.restart_node(0, extra_args=[f'-mocktime={t}', '-blockversion=133'])
         self.connect_nodes(0, 1)
         assert_equal(133, self.nodes[0].getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)['version'] % VERSION_CHAIN_START)
-        self.restart_node(0, extra_args=['-mocktime={}'.format(t)])
+        self.restart_node(0, extra_args=[f'-mocktime={t}'])
         self.connect_nodes(0, 1)
         assert_equal(CHAIN_ID, self.nodes[0].getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)['version'] // VERSION_CHAIN_START)
         self.restart_node(0)
         self.connect_nodes(0, 1)
 
     def run_test(self):
-        self.mine_chain()
         node = self.nodes[0]
+        self.wallet = MiniWallet(node)
+        self.mine_chain()
 
         def assert_submitblock(block, result_str_1, result_str_2=None):
             block.solve()
@@ -97,7 +97,7 @@ class MiningTest(BitcoinTestFramework):
         assert_equal(mining_info['pooledtx'], 0)
 
         self.log.info("getblocktemplate: Test default witness commitment")
-        txid = int(node.sendtoaddress(node.getnewaddress(), 1), 16)
+        txid = int(self.wallet.send_self_transfer(from_node=node)['wtxid'], 16)
         tmpl = node.getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)
 
         # Check that default_witness_commitment is present.
@@ -111,7 +111,7 @@ class MiningTest(BitcoinTestFramework):
         assert_equal(witness_commitment, script.hex())
 
         # Mine a block to leave initial block download and clear the mempool
-        node.generatetoaddress(1, node.get_deterministic_priv_key().address)
+        self.generatetoaddress(node, 1, node.get_deterministic_priv_key().address)
         tmpl = node.getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)
         self.log.info("getblocktemplate: Test capability advertised")
         assert 'proposal' in tmpl['capabilities']
@@ -273,7 +273,7 @@ class MiningTest(BitcoinTestFramework):
         assert chain_tip(block.hash, status='active', branchlen=0) in node.getchaintips()
 
         # Building a few blocks should give the same results
-        node.generatetoaddress(10, node.get_deterministic_priv_key().address)
+        self.generatetoaddress(node, 10, node.get_deterministic_priv_key().address)
         assert_raises_rpc_error(-25, 'time-too-old', lambda: node.submitheader(hexdata=CBlockHeader(bad_block_time).serialize().hex()))
         assert_raises_rpc_error(-25, 'bad-prevblk', lambda: node.submitheader(hexdata=CBlockHeader(bad_block2).serialize().hex()))
         node.submitheader(hexdata=CBlockHeader(block).serialize().hex())

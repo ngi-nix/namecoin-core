@@ -1,4 +1,4 @@
-// Copyright (c) 2014-2021 Daniel Kraft
+// Copyright (c) 2014-2022 Daniel Kraft
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -30,7 +30,7 @@ class NameMempoolTestSetup : public TestingSetup
 
 public:
 
-  CTxMemPool mempool;
+  CTxMemPool& mempool;
 
   CScript ADDR;
   CScript OTHER_ADDR;
@@ -38,16 +38,19 @@ public:
   const LockPoints lp;
 
   NameMempoolTestSetup ()
+    : mempool(*Assert(m_node.mempool))
   {
     ADDR = CScript () << OP_TRUE;
     OTHER_ADDR = CScript () << OP_TRUE << OP_RETURN;
 
+    ENTER_CRITICAL_SECTION (cs_main);
     ENTER_CRITICAL_SECTION (mempool.cs);
   }
 
   ~NameMempoolTestSetup ()
   {
     LEAVE_CRITICAL_SECTION (mempool.cs);
+    LEAVE_CRITICAL_SECTION (cs_main);
   }
 
   /**
@@ -322,6 +325,7 @@ BOOST_FIXTURE_TEST_CASE (mempool_sanity_check, NameMempoolTestSetup)
   mempool.addUnchecked (Entry (Tx (UpdateScript (ADDR, "upd", "x"))));
   mempool.addUnchecked (Entry (Tx (UpdateScript (ADDR, "upd", "y"))));
 
+  LOCK (cs_main);
   auto& chainState = m_node.chainman->ActiveChainstate ();
   auto& view = chainState.CoinsTip ();
 
@@ -330,7 +334,7 @@ BOOST_FIXTURE_TEST_CASE (mempool_sanity_check, NameMempoolTestSetup)
   data.fromScript (100, COutPoint (uint256 (), 0), nameOp);
   view.SetName (Name ("upd"), data, false);
 
-  mempool.checkNames (chainState);
+  mempool.checkNames (view, 10);
 }
 
 namespace

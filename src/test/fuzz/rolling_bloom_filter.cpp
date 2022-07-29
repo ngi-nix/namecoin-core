@@ -2,7 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include <bloom.h>
+#include <common/bloom.h>
 #include <test/fuzz/FuzzedDataProvider.h>
 #include <test/fuzz/fuzz.h>
 #include <test/fuzz/util.h>
@@ -16,16 +16,13 @@
 
 FUZZ_TARGET(rolling_bloom_filter)
 {
-    // Pick an arbitrary upper bound to limit the runtime and avoid timeouts on
-    // inputs.
-    int limit_max_ops{3000};
-
     FuzzedDataProvider fuzzed_data_provider(buffer.data(), buffer.size());
 
     CRollingBloomFilter rolling_bloom_filter{
         fuzzed_data_provider.ConsumeIntegralInRange<unsigned int>(1, 1000),
         0.999 / fuzzed_data_provider.ConsumeIntegralInRange<unsigned int>(1, std::numeric_limits<unsigned int>::max())};
-    while (--limit_max_ops >= 0 && fuzzed_data_provider.remaining_bytes() > 0) {
+    LIMITED_WHILE(fuzzed_data_provider.remaining_bytes() > 0, 3000)
+    {
         CallOneOf(
             fuzzed_data_provider,
             [&] {

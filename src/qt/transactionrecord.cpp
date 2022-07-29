@@ -1,19 +1,24 @@
-// Copyright (c) 2011-2020 The Bitcoin Core developers
+// Copyright (c) 2011-2021 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <qt/transactionrecord.h>
 
 #include <chain.h>
+#include <chainparams.h>
 #include <interfaces/wallet.h>
 #include <key_io.h>
-#include <names/encoding.h>
+#include <names/applications.h>
 #include <script/names.h>
 #include <wallet/ismine.h>
 
 #include <stdint.h>
 
 #include <QDateTime>
+
+using wallet::ISMINE_SPENDABLE;
+using wallet::ISMINE_WATCH_ONLY;
+using wallet::isminetype;
 
 /* Return positive answer if transaction should be shown in list.
  */
@@ -91,6 +96,61 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const interface
             if(fAllToMe > mine) fAllToMe = mine;
         }
 
+        std::optional<CNameScript> nNameCredit = wtx.name_credit;
+        std::optional<CNameScript> nNameDebit = wtx.name_debit;
+
+        TransactionRecord nameSub(hash, nTime, TransactionRecord::NameOp, "", 0, 0);
+
+        if(nNameCredit)
+        {
+            // TODO: Use friendly names based on namespaces
+            if(nNameCredit.value().isAnyUpdate())
+            {
+                if(nNameDebit)
+                {
+                    if(nNameCredit.value().getNameOp() == OP_NAME_FIRSTUPDATE)
+                    {
+                        nameSub.nameOpType = TransactionRecord::NameOpType::FirstUpdate;
+                    }
+                    else
+                    {
+                        // OP_NAME_UPDATE
+
+                        // Check if renewal (previous value is unchanged)
+                        if(nNameDebit.value().isAnyUpdate() && nNameDebit.value().getOpValue() == nNameCredit.value().getOpValue())
+                        {
+                            nameSub.nameOpType = TransactionRecord::NameOpType::Renew;
+                        }
+                        else
+                        {
+                            nameSub.nameOpType = TransactionRecord::NameOpType::Update;
+                        }
+                    }
+                }
+                else
+                {
+                    nameSub.nameOpType = TransactionRecord::NameOpType::Recv;
+                }
+
+                nameSub.nameNamespace = NamespaceFromName(nNameCredit.value().getOpName());
+                nameSub.address = DescFromName(nNameCredit.value().getOpName(), nameSub.nameNamespace);
+            }
+            else
+            {
+                nameSub.nameOpType = TransactionRecord::NameOpType::New;
+            }
+        }
+        else if(nNameDebit)
+        {
+            nameSub.nameOpType = TransactionRecord::NameOpType::Send;
+
+            if(nNameDebit.value().isAnyUpdate())
+            {
+                nameSub.nameNamespace = NamespaceFromName(nNameDebit.value().getOpName());
+                nameSub.address = DescFromName(nNameDebit.value().getOpName(), nameSub.nameNamespace);
+            }
+        }
+
         if (fAllFromMe && fAllToMe)
         {
             // Payment to self
@@ -102,37 +162,11 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const interface
 
             CAmount nChange = wtx.change;
 
-            // If we find a name script, we put it here.
-            bool foundNameOp = false;
-            CNameScript nameScript;
-
-            // TODO: Maybe move this loop into a convenience function.
-            for (const CTxOut& txout : wtx.tx->vout)
+            if(nNameCredit)
             {
-                // check txout for nameop
-                const CNameScript maybeNameScript(txout.scriptPubKey);
-                if(maybeNameScript.isNameOp())
-                {
-                    foundNameOp = true;
-                    nameScript = maybeNameScript;
-
-                    break;
-                }
-            }
-
-            if(foundNameOp)
-            {
-                // TODO: Use "Pre-Registration" / "Registration" / "Update" strings
-                std::string opName = GetOpName(nameScript.getNameOp());
-                std::string description = opName.substr(3);
-
-                // TODO: Use friendly names based on namespaces
-                if(nameScript.isAnyUpdate())
-                {
-                    description += " " + EncodeNameForMessage(nameScript.getOpName());
-                }
-
-                parts.append(TransactionRecord(hash, nTime, TransactionRecord::NameOp, description, -(nDebit - nChange), nCredit - nChange));
+                nameSub.debit = -(nDebit - nChange);
+                nameSub.credit = nCredit - nChange;
+                parts.append(nameSub);
             }
             else
             {
@@ -162,7 +196,13 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const interface
                     continue;
                 }
 
-                if (!std::get_if<CNoDestination>(&wtx.txout_address[nOut]))
+                if(nNameDebit && CNameScript::isNameScript(txout.scriptPubKey))
+                {
+                    nameSub.idx = sub.idx;
+                    nameSub.involvesWatchAddress = sub.involvesWatchAddress;
+                    sub = nameSub;
+                }
+                else if (!std::get_if<CNoDestination>(&wtx.txout_address[nOut]))
                 {
                     // Sent to Bitcoin Address
                     sub.type = TransactionRecord::SendToAddress;
@@ -176,6 +216,11 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const interface
                 }
 
                 CAmount nValue = txout.nValue;
+                if (sub.type == TransactionRecord::NameOp)
+                {
+                    // 300k is just a "sufficiently high" height
+                    nValue -= Params().GetConsensus().rules->MinNameCoinAmount(300000);
+                }
                 /* Add fee to first output */
                 if (nTxFee > 0)
                 {
@@ -189,10 +234,18 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const interface
         }
         else
         {
-            //
             // Mixed debit transaction, can't break down payees
-            //
-            parts.append(TransactionRecord(hash, nTime, TransactionRecord::Other, "", nNet, 0));
+
+            if(nNameCredit)
+            {
+                nameSub.debit = nNet;
+                parts.append(nameSub);
+            }
+            else
+            {
+                parts.append(TransactionRecord(hash, nTime, TransactionRecord::Other, "", nNet, 0));
+            }
+
             parts.last().involvesWatchAddress = involvesWatchAddress;
         }
     }
@@ -214,21 +267,8 @@ void TransactionRecord::updateStatus(const interfaces::WalletTxStatus& wtx, cons
     status.depth = wtx.depth_in_main_chain;
     status.m_cur_block_hash = block_hash;
 
-    const bool up_to_date = ((int64_t)QDateTime::currentMSecsSinceEpoch() / 1000 - block_time < MAX_BLOCK_TIME_GAP);
-    if (up_to_date && !wtx.is_final) {
-        if (wtx.lock_time < LOCKTIME_THRESHOLD) {
-            status.status = TransactionStatus::OpenUntilBlock;
-            status.open_for = wtx.lock_time - numBlocks;
-        }
-        else
-        {
-            status.status = TransactionStatus::OpenUntilDate;
-            status.open_for = wtx.lock_time;
-        }
-    }
     // For generated transactions, determine maturity
-    else if(type == TransactionRecord::Generated)
-    {
+    if (type == TransactionRecord::Generated) {
         if (wtx.blocks_to_maturity > 0)
         {
             status.status = TransactionStatus::Immature;

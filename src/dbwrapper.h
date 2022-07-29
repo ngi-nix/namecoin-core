@@ -1,4 +1,4 @@
-// Copyright (c) 2012-2020 The Bitcoin Core developers
+// Copyright (c) 2012-2021 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -163,7 +163,7 @@ public:
     template<typename K> bool GetKey(K& key) {
         leveldb::Slice slKey = piter->key();
         try {
-            CDataStream ssKey(MakeUCharSpan(slKey), SER_DISK, CLIENT_VERSION);
+            CDataStream ssKey{MakeByteSpan(slKey), SER_DISK, CLIENT_VERSION};
             ssKey >> key;
         } catch (const std::exception&) {
             return false;
@@ -174,7 +174,7 @@ public:
     template<typename V> bool GetValue(V& value) {
         leveldb::Slice slValue = piter->value();
         try {
-            CDataStream ssValue(MakeUCharSpan(slValue), SER_DISK, CLIENT_VERSION);
+            CDataStream ssValue{MakeByteSpan(slValue), SER_DISK, CLIENT_VERSION};
             ssValue.Xor(dbwrapper_private::GetObfuscateKey(parent));
             ssValue >> value;
         } catch (const std::exception&) {
@@ -182,11 +182,6 @@ public:
         }
         return true;
     }
-
-    unsigned int GetValueSize() {
-        return piter->value().size();
-    }
-
 };
 
 class CDBWrapper
@@ -260,7 +255,7 @@ public:
             dbwrapper_private::HandleError(status);
         }
         try {
-            CDataStream ssValue(MakeUCharSpan(strValue), SER_DISK, CLIENT_VERSION);
+            CDataStream ssValue{MakeByteSpan(strValue), SER_DISK, CLIENT_VERSION};
             ssValue.Xor(obfuscate_key);
             ssValue >> value;
         } catch (const std::exception&) {
@@ -333,22 +328,6 @@ public:
         leveldb::Range range(slKey1, slKey2);
         pdb->GetApproximateSizes(&range, 1, &size);
         return size;
-    }
-
-    /**
-     * Compact a certain range of keys in the database.
-     */
-    template<typename K>
-    void CompactRange(const K& key_begin, const K& key_end) const
-    {
-        CDataStream ssKey1(SER_DISK, CLIENT_VERSION), ssKey2(SER_DISK, CLIENT_VERSION);
-        ssKey1.reserve(DBWRAPPER_PREALLOC_KEY_SIZE);
-        ssKey2.reserve(DBWRAPPER_PREALLOC_KEY_SIZE);
-        ssKey1 << key_begin;
-        ssKey2 << key_end;
-        leveldb::Slice slKey1((const char*)ssKey1.data(), ssKey1.size());
-        leveldb::Slice slKey2((const char*)ssKey2.data(), ssKey2.size());
-        pdb->CompactRange(&slKey1, &slKey2);
     }
 };
 

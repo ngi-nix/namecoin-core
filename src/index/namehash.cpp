@@ -5,13 +5,14 @@
 #include <index/namehash.h>
 
 #include <hash.h>
+#include <primitives/block.h>
 #include <script/names.h>
 
 #include <utility>
 #include <vector>
 
 /** Database "key prefix" for the actual hash entries.  */
-constexpr char DB_HASH = 'h';
+constexpr uint8_t DB_HASH = 'h';
 
 class NameHashIndex::DB : public BaseIndex::DB
 {

@@ -6,6 +6,7 @@
 
 #include <chain.h>
 #include <key.h>
+#include <key_io.h>
 #include <test/util/setup_common.h>
 #include <wallet/wallet.h>
 #include <wallet/walletdb.h>
@@ -14,25 +15,34 @@
 
 #include <memory>
 
-std::unique_ptr<CWallet> CreateSyncedWallet(interfaces::Chain& chain, CChain& cchain, const CKey& key)
+namespace wallet {
+std::unique_ptr<CWallet> CreateSyncedWallet(interfaces::Chain& chain, CChain& cchain, ArgsManager& args, const CKey& key)
 {
-    auto wallet = std::make_unique<CWallet>(&chain, "", CreateMockWalletDatabase());
+    auto wallet = std::make_unique<CWallet>(&chain, "", args, CreateMockWalletDatabase());
     {
         LOCK2(wallet->cs_wallet, ::cs_main);
         wallet->SetLastBlockProcessed(cchain.Height(), cchain.Tip()->GetBlockHash());
     }
     wallet->LoadWallet();
     {
-        auto spk_man = wallet->GetOrCreateLegacyScriptPubKeyMan();
-        LOCK2(wallet->cs_wallet, spk_man->cs_KeyStore);
-        spk_man->AddKeyPubKey(key, key.GetPubKey());
+        LOCK(wallet->cs_wallet);
+        wallet->SetWalletFlag(WALLET_FLAG_DESCRIPTORS);
+        wallet->SetupDescriptorScriptPubKeyMans();
+
+        FlatSigningProvider provider;
+        std::string error;
+        std::unique_ptr<Descriptor> desc = Parse("combo(" + EncodeSecret(key) + ")", provider, error, /* require_checksum=*/ false);
+        assert(desc);
+        WalletDescriptor w_desc(std::move(desc), 0, 0, 1, 1);
+        if (!wallet->AddWalletDescriptor(w_desc, provider, "", false)) assert(false);
     }
     WalletRescanReserver reserver(*wallet);
     reserver.reserve();
-    CWallet::ScanResult result = wallet->ScanForWalletTransactions(cchain.Genesis()->GetBlockHash(), 0 /* start_height */, {} /* max_height */, reserver, false /* update */);
+    CWallet::ScanResult result = wallet->ScanForWalletTransactions(cchain.Genesis()->GetBlockHash(), /*start_height=*/0, /*max_height=*/{}, reserver, /*fUpdate=*/false, /*save_progress=*/false);
     BOOST_CHECK_EQUAL(result.status, CWallet::ScanResult::SUCCESS);
     BOOST_CHECK_EQUAL(result.last_scanned_block, cchain.Tip()->GetBlockHash());
     BOOST_CHECK_EQUAL(*result.last_scanned_height, cchain.Height());
     BOOST_CHECK(result.last_failed_block.IsNull());
     return wallet;
 }
+} // namespace wallet

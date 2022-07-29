@@ -4,6 +4,12 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <chain.h>
+#include <util/time.h>
+
+std::string CBlockFileInfo::ToString() const
+{
+    return strprintf("CBlockFileInfo(blocks=%u, size=%u, heights=%u...%u, time=%s...%s)", nBlocks, nSize, nHeightFirst, nHeightLast, FormatISO8601Date(nTimeFirst), FormatISO8601Date(nTimeLast));
+}
 
 #include <node/blockstorage.h>
 
@@ -12,30 +18,26 @@
 CBlockHeader CBlockIndex::GetBlockHeader(const Consensus::Params& consensusParams) const
 {
     CBlockHeader block;
-
-    block.nVersion       = nVersion;
+    block.nVersion = nVersion;
 
     /* The CBlockIndex object's block header is missing the auxpow.
        So if this is an auxpow block, read it from disk instead.  We only
        have to read the actual *header*, not the full block.  */
     if (block.IsAuxpow())
     {
-        ReadBlockHeaderFromDisk(block, this, consensusParams);
+        node::ReadBlockHeaderFromDisk(block, this, consensusParams);
         return block;
     }
 
     if (pprev)
         block.hashPrevBlock = pprev->GetBlockHash();
     block.hashMerkleRoot = hashMerkleRoot;
-    block.nTime          = nTime;
-    block.nBits          = nBits;
-    block.nNonce         = nNonce;
+    block.nTime = nTime;
+    block.nBits = nBits;
+    block.nNonce = nNonce;
     return block;
 }
 
-/**
- * CChain implementation
- */
 void CChain::SetTip(CBlockIndex *pindex) {
     if (pindex == nullptr) {
         vChain.clear();
@@ -176,7 +178,7 @@ int64_t GetBlockProofEquivalentTime(const CBlockIndex& to, const CBlockIndex& fr
     if (r.bits() > 63) {
         return sign * std::numeric_limits<int64_t>::max();
     }
-    return sign * r.GetLow64();
+    return sign * int64_t(r.GetLow64());
 }
 
 /** Find the last common ancestor two blocks have.

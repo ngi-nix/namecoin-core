@@ -1,5 +1,5 @@
 // Copyright (c) 2010 Satoshi Nakamoto
-// Copyright (c) 2009-2020 The Bitcoin Core developers
+// Copyright (c) 2009-2021 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -9,12 +9,11 @@
 #include <consensus/merkle.h>
 #include <deploymentinfo.h>
 #include <hash.h> // for signet block challenge hash
+#include <script/interpreter.h>
+#include <util/string.h>
 #include <util/system.h>
 
 #include <assert.h>
-
-#include <boost/algorithm/string/classification.hpp>
-#include <boost/algorithm/string/split.hpp>
 
 bool CChainParams::IsHistoricBug(const uint256& txid, unsigned nHeight, BugType& type) const
 {
@@ -118,10 +117,10 @@ public:
 
         // The best chain should have at least this much work.
         // The value is the chain work of the Namecoin mainnet chain at height
-        // 565'000, with best block hash:
-        // c01bef3777cd3198da32d646a46b772f65f1f891f9c763213f6b2215ed102e3e
-        consensus.nMinimumChainWork = uint256S("0x000000000000000000000000000000000000000017d9893c1637fb054df5d60b");
-        consensus.defaultAssumeValid = uint256S("0xc01bef3777cd3198da32d646a46b772f65f1f891f9c763213f6b2215ed102e3e"); // 565'000
+        // 600'000, with best block hash:
+        // fffdf47d40874f72689a230226d681cad1f52408157ee38276e7f7b2ba7a1110
+        consensus.nMinimumChainWork = uint256S("0x00000000000000000000000000000000000000001f41a15cef55c50b714a8fa3");
+        consensus.defaultAssumeValid = uint256S("0xfffdf47d40874f72689a230226d681cad1f52408157ee38276e7f7b2ba7a1110"); // 600'000
 
         consensus.nAuxpowChainId = 0x0001;
         consensus.nAuxpowStartHeight = 19200;
@@ -154,9 +153,12 @@ public:
         // This is fine at runtime as we'll fall back to using them as an addrfetch if they don't support the
         // service bits we want, but we should get them updated to support all service bits wanted by any
         // release ASAP to avoid it where possible.
-        vSeeds.emplace_back("seed.namecoin.libreisp.se"); // Jonas Ostman
-        vSeeds.emplace_back("nmc.seed.quisquis.de"); // Peter Conrad
-        vSeeds.emplace_back("seed.nmc.markasoftware.com"); // Mark Polyakov
+        vSeeds.emplace_back("seed.namecoin.libreisp.se."); // Jonas Ostman
+        vSeeds.emplace_back("nmc.seed.quisquis.de."); // Peter Conrad
+        vSeeds.emplace_back("seed.nmc.markasoftware.com."); // Mark Polyakov
+        vSeeds.emplace_back("dnsseed1.nmc.dotbit.zone."); // Stefan Stere
+        vSeeds.emplace_back("dnsseed2.nmc.dotbit.zone."); // Stefan Stere
+        vSeeds.emplace_back("dnsseed.nmc.testls.space."); // mjgill89
 
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,52);
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,13);
@@ -201,10 +203,10 @@ public:
         };
 
         chainTxData = ChainTxData{
-            // Data from RPC: getchaintxstats 4096 c01bef3777cd3198da32d646a46b772f65f1f891f9c763213f6b2215ed102e3e
-            /* nTime    */ 1624836702,
-            /* nTxCount */ 5629591,
-            /* dTxRate  */ 0.006507489988980306,
+            // Data from RPC: getchaintxstats 4096 fffdf47d40874f72689a230226d681cad1f52408157ee38276e7f7b2ba7a1110
+            /* nTime    */ 1645388436,
+            /* nTxCount */ 6106434,
+            /* dTxRate  */ 0.07820408191038611,
         };
 
         /* See also doc/NamecoinBugs.txt for more explanation on the
@@ -325,8 +327,8 @@ public:
         vFixedSeeds.clear();
         vSeeds.clear();
         // nodes with support for servicebits filtering should be at the top
-        vSeeds.emplace_back("dnsseed.test.namecoin.webbtc.com"); // Marius Hanne
-        vSeeds.emplace_back("ncts.roanapur.info"); // Yanmaani
+        vSeeds.emplace_back("dnsseed.test.namecoin.webbtc.com."); // Marius Hanne
+        vSeeds.emplace_back("ncts.roanapur.info."); // Yanmaani
 
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,111);
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,196);
@@ -400,15 +402,15 @@ public:
             bin = ParseHex("512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae");
             //vSeeds.emplace_back("178.128.221.177");
 
-            consensus.nMinimumChainWork = uint256S("0x0000000000000000000000000000000000000000000000000000008546553c03");
-            consensus.defaultAssumeValid = uint256S("0x000000187d4440e5bff91488b700a140441e089a8aaea707414982460edbfe54"); // 47200
+            consensus.nMinimumChainWork = uint256S("0x000000000000000000000000000000000000000000000000000000de26b0e471");
+            consensus.defaultAssumeValid = uint256S("0x00000112852484b5fe3451572368f93cfd2723279af3464e478aee35115256ef"); // 78788
             m_assumed_blockchain_size = 1;
             m_assumed_chain_state_size = 0;
             chainTxData = ChainTxData{
-                // Data from RPC: getchaintxstats 4096 000000187d4440e5bff91488b700a140441e089a8aaea707414982460edbfe54
-                /* nTime    */ 1626696658,
-                /* nTxCount */ 387761,
-                /* dTxRate  */ 0.04035946932424404,
+                // Data from RPC: getchaintxstats 4096 0000003d9144c56ac110ae04a0c271a0acce2f14f426b39fdf0d938c96d2eb09
+                /* nTime    */ 1645631279,
+                /* nTxCount */ 1257429,
+                /* dTxRate  */ 0.1389638742514995,
             };
         } else {
             const auto signet_challenge = args.GetArgs("-signetchallenge");
@@ -518,11 +520,11 @@ public:
         consensus.signet_challenge.clear();
         consensus.nSubsidyHalvingInterval = 150;
         consensus.BIP16Height = 0;
-        consensus.BIP34Height = 500; // BIP34 activated on regtest (Used in functional tests)
-        consensus.BIP65Height = 1351; // BIP65 activated on regtest (Used in functional tests)
-        consensus.BIP66Height = 1251; // BIP66 activated on regtest (Used in functional tests)
-        consensus.CSVHeight = 432; // CSV activated on regtest (Used in rpc activation tests)
-        consensus.SegwitHeight = 0; // SEGWIT is always activated on regtest unless overridden
+        consensus.BIP34Height = 1; // Always active unless overridden
+        consensus.BIP65Height = 1;  // Always active unless overridden
+        consensus.BIP66Height = 1;  // Always active unless overridden
+        consensus.CSVHeight = 1;    // Always active unless overridden
+        consensus.SegwitHeight = 0; // Always active unless overridden
         consensus.MinBIP9WarningHeight = 0;
         consensus.powLimit = uint256S("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
         consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
@@ -570,7 +572,8 @@ public:
         assert(genesis.hashMerkleRoot == uint256S("0x4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"));
 
         vFixedSeeds.clear(); //!< Regtest mode doesn't have any fixed seeds.
-        vSeeds.clear();      //!< Regtest mode doesn't have any DNS seeds.
+        vSeeds.clear();
+        vSeeds.emplace_back("dummySeed.invalid.");
 
         fDefaultConsistencyChecks = true;
         fRequireStandard = true;
@@ -628,28 +631,45 @@ public:
     void UpdateActivationParametersFromArgs(const ArgsManager& args);
 };
 
+static void MaybeUpdateHeights(const ArgsManager& args, Consensus::Params& consensus)
+{
+    for (const std::string& arg : args.GetArgs("-testactivationheight")) {
+        const auto found{arg.find('@')};
+        if (found == std::string::npos) {
+            throw std::runtime_error(strprintf("Invalid format (%s) for -testactivationheight=name@height.", arg));
+        }
+        const auto name{arg.substr(0, found)};
+        const auto value{arg.substr(found + 1)};
+        int32_t height;
+        if (!ParseInt32(value, &height) || height < 0 || height >= std::numeric_limits<int>::max()) {
+            throw std::runtime_error(strprintf("Invalid height value (%s) for -testactivationheight=name@height.", arg));
+        }
+        if (name == "bip16") {
+            consensus.BIP16Height = int{height};
+        } else if (name == "segwit") {
+            consensus.SegwitHeight = int{height};
+        } else if (name == "bip34") {
+            consensus.BIP34Height = int{height};
+        } else if (name == "dersig") {
+            consensus.BIP66Height = int{height};
+        } else if (name == "cltv") {
+            consensus.BIP65Height = int{height};
+        } else if (name == "csv") {
+            consensus.CSVHeight = int{height};
+        } else {
+            throw std::runtime_error(strprintf("Invalid name (%s) for -testactivationheight=name@height.", arg));
+        }
+    }
+}
+
 void CRegTestParams::UpdateActivationParametersFromArgs(const ArgsManager& args)
 {
-    if (args.IsArgSet("-bip16height")) {
-        int64_t height = args.GetArg("-bip16height", consensus.BIP16Height);
-        if (height < 0 || height >= std::numeric_limits<int>::max()) {
-            throw std::runtime_error(strprintf("Activation height %ld for BIP16 is out of valid range.", height));
-        }
-        consensus.BIP16Height = static_cast<int>(height);
-    }
-    if (args.IsArgSet("-segwitheight")) {
-        int64_t height = args.GetArg("-segwitheight", consensus.SegwitHeight);
-        if (height < 0 || height >= std::numeric_limits<int>::max()) {
-            throw std::runtime_error(strprintf("Activation height %ld for segwit is out of valid range.", height));
-        }
-        consensus.SegwitHeight = static_cast<int>(height);
-    }
+    MaybeUpdateHeights(args, consensus);
 
     if (!args.IsArgSet("-vbparams")) return;
 
     for (const std::string& strDeployment : args.GetArgs("-vbparams")) {
-        std::vector<std::string> vDeploymentParams;
-        boost::split(vDeploymentParams, strDeployment, boost::is_any_of(":"));
+        std::vector<std::string> vDeploymentParams = SplitString(strDeployment, ':');
         if (vDeploymentParams.size() < 3 || 4 < vDeploymentParams.size()) {
             throw std::runtime_error("Version bits parameters malformed, expecting deployment:start:end[:min_activation_height]");
         }

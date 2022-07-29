@@ -1,4 +1,4 @@
-// Copyright (c) 2011-2020 The Bitcoin Core developers
+// Copyright (c) 2011-2021 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -34,16 +34,17 @@ class SendCoinsRecipient;
 class TransactionTableModel;
 class WalletModelTransaction;
 
-class CCoinControl;
 class CKeyID;
 class COutPoint;
-class COutput;
 class CPubKey;
 class uint256;
 
 namespace interfaces {
 class Node;
 } // namespace interfaces
+namespace wallet {
+class CCoinControl;
+} // namespace wallet
 
 QT_BEGIN_NAMESPACE
 class QTimer;
@@ -67,8 +68,7 @@ public:
         AmountWithFeeExceedsBalance,
         DuplicateAddress,
         TransactionCreationFailed, // Error returned when wallet is still locked
-        AbsurdFee,
-        PaymentRequestExpired
+        AbsurdFee
     };
 
     enum EncryptionStatus
@@ -78,16 +78,16 @@ public:
         Unlocked      // wallet->IsCrypted() && !wallet->IsLocked()
     };
 
-    OptionsModel *getOptionsModel();
-    AddressTableModel *getAddressTableModel();
-    TransactionTableModel *getTransactionTableModel();
-    NameTableModel *getNameTableModel();
-    RecentRequestsTableModel *getRecentRequestsTableModel();
+    OptionsModel *getOptionsModel() const;
+    AddressTableModel *getAddressTableModel() const;
+    TransactionTableModel *getTransactionTableModel() const;
+    NameTableModel *getNameTableModel() const;
+    RecentRequestsTableModel *getRecentRequestsTableModel() const;
 
     EncryptionStatus getEncryptionStatus() const;
 
     // Check address for validity
-    bool validateAddress(const QString &address);
+    bool validateAddress(const QString& address) const;
 
     // Return status record for SendCoins, contains error id + information
     struct SendCoinsReturn
@@ -102,10 +102,10 @@ public:
     };
 
     // prepare transaction for getting txfee before sending coins
-    SendCoinsReturn prepareTransaction(WalletModelTransaction &transaction, const CCoinControl& coinControl);
+    SendCoinsReturn prepareTransaction(WalletModelTransaction &transaction, const wallet::CCoinControl& coinControl);
 
     // Send coins to a list of recipients
-    SendCoinsReturn sendCoins(WalletModelTransaction &transaction);
+    void sendCoins(WalletModelTransaction& transaction);
 
     // Wallet encryption
     bool setWalletEncrypted(const SecureString& passphrase);
@@ -139,7 +139,7 @@ public:
     UnlockContext requestUnlock();
 
     bool bumpFee(uint256 hash, uint256& new_hash);
-    bool displayAddress(std::string sAddress);
+    bool displayAddress(std::string sAddress) const;
 
     static bool isWalletEnabled();
 
@@ -151,9 +151,7 @@ public:
     QString getWalletName() const;
     QString getDisplayName() const;
 
-    bool isMultiwallet();
-
-    AddressTableModel* getAddressTableModel() const { return addressTableModel; }
+    bool isMultiwallet() const;
 
     void refresh(bool pk_hash_only = false);
 

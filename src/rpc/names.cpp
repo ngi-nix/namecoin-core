@@ -17,12 +17,13 @@
 #include <rpc/blockchain.h>
 #include <rpc/names.h>
 #include <rpc/server.h>
+#include <rpc/server_util.h>
 #include <script/names.h>
 #include <txmempool.h>
 #include <util/strencodings.h>
 #include <validation.h>
 #ifdef ENABLE_WALLET
-# include <wallet/rpcwallet.h>
+# include <wallet/rpc/util.h>
 # include <wallet/wallet.h>
 #endif
 
@@ -135,15 +136,15 @@ addExpirationInfo (const ChainstateManager& chainman,
  * Adds the "ismine" field giving ownership info to the JSON object.
  */
 void
-addOwnershipInfo (const CScript& addr, const CWallet* pwallet,
+addOwnershipInfo (const CScript& addr, const wallet::CWallet* pwallet,
                   UniValue& data)
 {
   if (pwallet == nullptr)
     return;
 
   AssertLockHeld (pwallet->cs_wallet);
-  const isminetype mine = pwallet->IsMine (addr);
-  const bool isMine = (mine & ISMINE_SPENDABLE);
+  const wallet::isminetype mine = pwallet->IsMine (addr);
+  const bool isMine = (mine & wallet::ISMINE_SPENDABLE);
   data.pushKV ("ismine", isMine);
 }
 #endif
@@ -254,7 +255,7 @@ class MaybeWalletForRequest
 private:
 
 #ifdef ENABLE_WALLET
-  std::shared_ptr<CWallet> wallet;
+  std::shared_ptr<wallet::CWallet> wallet;
 #endif
 
 public:
@@ -264,18 +265,26 @@ public:
 #ifdef ENABLE_WALLET
     try
       {
-        wallet = GetWalletForJSONRPCRequest (request);
+        /* GetWalletForJSONRPCRequest throws an internal error if there
+           is no wallet context.  We want to handle this situation gracefully
+           and just fall back to not having a wallet in this case.  */
+        if (util::AnyPtr<wallet::WalletContext> (request.context))
+          {
+            wallet = wallet::GetWalletForJSONRPCRequest (request);
+            return;
+          }
       }
     catch (const UniValue& exc)
       {
         const auto& code = exc["code"];
-        if (!code.isNum () || code.get_int () != RPC_WALLET_NOT_SPECIFIED)
+        if (!code.isNum () || code.getInt<int> () != RPC_WALLET_NOT_SPECIFIED)
           throw;
 
-        /* If the wallet is not set, that's fine, and we just indicate it to
-           other code (by having a null wallet).  */
-        wallet = nullptr;
       }
+
+    /* If the wallet is not set, that's fine, and we just indicate it to
+       other code (by having a null wallet).  */
+    wallet = nullptr;
 #endif
   }
 
@@ -290,13 +299,13 @@ public:
   }
 
 #ifdef ENABLE_WALLET
-  CWallet*
+  wallet::CWallet*
   getWallet ()
   {
     return wallet.get ();
   }
 
-  const CWallet*
+  const wallet::CWallet*
   getWallet () const
   {
     return wallet.get ();
@@ -332,19 +341,36 @@ getNameInfo (const ChainstateManager& chainman, const UniValue& options,
   return res;
 }
 
+/** Named constant for optional RPCResult fields.  */
+constexpr bool optional = true;
+
 } // anonymous namespace
+
+const RPCResult NameOpResult{RPCResult::Type::OBJ, "nameOp", optional,
+    "The encoded name-operation (if the script has one)",
+    {
+      {RPCResult::Type::STR, "op", "The type of operation"},
+      {RPCResult::Type::STR_HEX, "hash", optional, "Hash value for name_new"},
+      {RPCResult::Type::STR_HEX, "rand", optional, "Seed value for name_firstupdate"},
+      {RPCResult::Type::STR, "name", optional, "Name for updates"},
+      {RPCResult::Type::STR, "name_error", optional, "Encoding error for the name, if any"},
+      {RPCResult::Type::STR, "name_encoding", optional, "Encoding of the name"},
+      {RPCResult::Type::STR, "value", optional, "Value for updates"},
+      {RPCResult::Type::STR, "value_error", optional, "Encoding error for the value, if any"},
+      {RPCResult::Type::STR, "value_encoding", optional, "Encoding of the value"},
+    }};
 
 /* ************************************************************************** */
 
 NameInfoHelp::NameInfoHelp ()
 {
-  withField ({RPCResult::Type::STR, "name", "the requested name"});
+  withField ({RPCResult::Type::STR, "name", optional, "the requested name"});
   withField ({RPCResult::Type::STR, "name_encoding", "the encoding of \"name\""});
-  withField ({RPCResult::Type::STR, "name_error",
+  withField ({RPCResult::Type::STR, "name_error", optional,
               "replaces \"name\" in case there is an error"});
-  withField ({RPCResult::Type::STR, "value", "the name's current value"});
+  withField ({RPCResult::Type::STR, "value", optional, "the name's current value"});
   withField ({RPCResult::Type::STR, "value_encoding", "the encoding of \"value\""});
-  withField ({RPCResult::Type::STR, "value_error",
+  withField ({RPCResult::Type::STR, "value_error", optional,
               "replaces \"value\" in case there is an error"});
 
   withField ({RPCResult::Type::STR_HEX, "txid", "the name's last update tx"});
@@ -352,7 +378,7 @@ NameInfoHelp::NameInfoHelp ()
               "the index of the name output in the last update"});
   withField ({RPCResult::Type::STR, "address", "the address holding the name"});
 #ifdef ENABLE_WALLET
-  withField ({RPCResult::Type::BOOL, "ismine",
+  withField ({RPCResult::Type::BOOL, "ismine", optional,
               "whether the name is owned by the wallet"});
 #endif
 }
@@ -494,7 +520,7 @@ name_show ()
       [&] (const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
   RPCTypeCheck (request.params, {UniValue::VSTR, UniValue::VOBJ});
-  auto& chainman = EnsureAnyChainman (request.context);
+  auto& chainman = EnsureChainman (EnsureAnyNodeContext (request));
 
   if (chainman.ActiveChainstate ().IsInitialBlockDownload ())
     throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD,
@@ -523,7 +549,7 @@ name_show ()
     if (!chainman.ActiveChainstate ().CoinsTip ().GetName (name, data))
       {
         std::ostringstream msg;
-        msg << "name not found: " << EncodeNameForMessage (name);
+        msg << "name never existed: " << EncodeNameForMessage (name);
         throw JSONRPCError (RPC_WALLET_ERROR, msg.str ());
       }
   }
@@ -536,7 +562,7 @@ name_show ()
   if (is_expired && !allow_expired)
     {
       std::ostringstream msg;
-      msg << "name not found: " << EncodeNameForMessage(name);
+      msg << "name expired: " << EncodeNameForMessage(name);
       throw JSONRPCError(RPC_WALLET_ERROR, msg.str());
     }
   return name_object;
@@ -575,7 +601,7 @@ name_history ()
       [&] (const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
   RPCTypeCheck (request.params, {UniValue::VSTR, UniValue::VOBJ});
-  auto& chainman = EnsureAnyChainman (request.context);
+  auto& chainman = EnsureChainman (EnsureAnyNodeContext (request));
 
   if (!fNameHistory)
     throw std::runtime_error ("-namehistory is not enabled");
@@ -663,7 +689,7 @@ name_scan ()
 {
   RPCTypeCheck (request.params,
                 {UniValue::VSTR, UniValue::VNUM, UniValue::VOBJ});
-  auto& chainman = EnsureAnyChainman (request.context);
+  auto& chainman = EnsureChainman (EnsureAnyNodeContext (request));
 
   if (chainman.ActiveChainstate ().IsInitialBlockDownload ())
     throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD,
@@ -679,7 +705,7 @@ name_scan ()
 
   int count = 500;
   if (!request.params[1].isNull ())
-    count = request.params[1].get_int ();
+    count = request.params[1].getInt<int> ();
 
   /* Parse and interpret the name_scan-specific options.  */
   RPCTypeCheckObj (options,
@@ -693,14 +719,14 @@ name_scan ()
 
   int minConf = 1;
   if (options.exists ("minConf"))
-    minConf = options["minConf"].get_int ();
+    minConf = options["minConf"].getInt<int> ();
   if (minConf < 1)
     throw JSONRPCError (RPC_INVALID_PARAMETER, "minConf must be >= 1");
 
   int maxConf = -1;
   if (options.exists ("maxConf"))
     {
-      maxConf = options["maxConf"].get_int ();
+      maxConf = options["maxConf"].getInt<int> ();
       if (maxConf < 0)
         throw JSONRPCError (RPC_INVALID_PARAMETER,
                             "maxConf must not be negative");
@@ -793,7 +819,6 @@ name_pending ()
           {
               NameInfoHelp ()
                 .withField ({RPCResult::Type::STR, "op", "the operation being performed"})
-                .withExpiration ()
                 .finish ()
           }
       },
@@ -807,7 +832,7 @@ name_pending ()
   RPCTypeCheck (request.params, {UniValue::VSTR, UniValue::VOBJ}, true);
 
   MaybeWalletForRequest wallet(request);
-  auto& mempool = EnsureAnyMemPool (request.context);
+  auto& mempool = EnsureMemPool (EnsureAnyNodeContext (request));
   LOCK2 (wallet.getLock (), mempool.cs);
 
   UniValue options(UniValue::VOBJ);
@@ -920,7 +945,7 @@ PerformNameRawtx (const unsigned nOut, const UniValue& nameOp,
       else
         {
           rand.resize (20);
-          GetRandBytes (&rand[0], rand.size ());
+          GetRandBytes (rand);
         }
 
       const valtype name
@@ -1016,8 +1041,8 @@ namerawtransaction ()
 
   UniValue result(UniValue::VOBJ);
 
-  PerformNameRawtx (request.params[1].get_int (), request.params[2].get_obj (),
-                    mtx, result);
+  PerformNameRawtx (request.params[1].getInt<int> (),
+                    request.params[2].get_obj (), mtx, result);
 
   result.pushKV ("hex", EncodeHexTx (CTransaction (mtx)));
   return result;
@@ -1068,8 +1093,8 @@ namepsbt ()
 
   UniValue result(UniValue::VOBJ);
 
-  PerformNameRawtx (request.params[1].get_int (), request.params[2].get_obj (),
-                    *psbtx.tx, result);
+  PerformNameRawtx (request.params[1].getInt<int> (),
+                    request.params[2].get_obj (), *psbtx.tx, result);
 
   CDataStream ssTx(SER_NETWORK, PROTOCOL_VERSION);
   ssTx << psbtx;
@@ -1096,7 +1121,7 @@ name_checkdb ()
       },
       [&] (const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
-  NodeContext& node = EnsureAnyNodeContext (request.context);
+  node::NodeContext& node = EnsureAnyNodeContext (request);
   ChainstateManager& chainman = EnsureChainman (node);
 
   LOCK (cs_main);
@@ -1111,7 +1136,7 @@ name_checkdb ()
 } // namespace
 /* ************************************************************************** */
 
-void RegisterNameRPCCommands(CRPCTable &t)
+Span<const CRPCCommand> GetNameRPCCommands()
 {
 static const CRPCCommand commands[] =
 { //  category               actor (function)
@@ -1125,6 +1150,11 @@ static const CRPCCommand commands[] =
     { "rawtransactions",     &namepsbt,                },
 };
 
-    for (const auto& c : commands)
-        t.appendCommand(c.name, &c);
+  return Span {commands};
+}
+
+void RegisterNameRPCCommands(CRPCTable &t)
+{
+  for (const auto& c : GetNameRPCCommands ())
+    t.appendCommand(c.name, &c);
 }

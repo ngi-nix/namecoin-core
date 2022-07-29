@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2014-2020 Daniel Kraft
+# Copyright (c) 2014-2021 Daniel Kraft
 # Distributed under the MIT/X11 software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -23,11 +23,11 @@ class NameRegistrationTest (NameTestFramework):
     """
 
     addr = self.nodes[1].getnewaddress ()
-    self.nodes[0].generatetoaddress (n, addr)
+    self.generatetoaddress (self.nodes[0], n, addr)
 
   def run_test (self):
     node = self.nodes[0]
-    node.generate (50)
+    self.generate (node, 50)
     self.generateToOther (150)
 
     # Perform name_new's.  Check for too long names exception.
@@ -72,7 +72,7 @@ class NameRegistrationTest (NameTestFramework):
     
     # Check that the name appears when the name_new is ripe.
     self.generateToOther (7)
-    assert_raises_rpc_error (-4, 'name not found',
+    assert_raises_rpc_error (-4, 'name never existed',
                              node.name_show, "name-0")
     assert_raises_rpc_error (-4, 'name not found',
                              node.name_history, "name-0")
@@ -154,7 +154,7 @@ class NameRegistrationTest (NameTestFramework):
     data = self.checkName (0, "test-name", "sent", 30, False)
     assert_equal (data['address'], addrOther)
     self.nodes[1].name_update ("test-name", "updated")
-    self.nodes[1].generate (1)
+    self.generate (self.nodes[1], 1)
     self.sync_blocks ()
     data = self.checkName (1, "test-name", "updated", 30, False)
     self.checkNameHistory (0, "test-name",

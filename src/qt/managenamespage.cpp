@@ -8,6 +8,8 @@
 #include <qt/platformstyle.h>
 #include <qt/walletmodel.h>
 
+#include <node/interface_ui.h>
+
 #include <QMessageBox>
 #include <QMenu>
 #include <QSortFilterProxyModel>
@@ -52,6 +54,8 @@ ManageNamesPage::ManageNamesPage(const PlatformStyle *platformStyle, QWidget *pa
     ui->tableView->setEditTriggers(QAbstractItemView::NoEditTriggers);
 
     ui->tableView->installEventFilter(this);
+
+    connect(ui->exportButton, &QPushButton::clicked, this, &ManageNamesPage::onExport);
 }
 
 ManageNamesPage::~ManageNamesPage()
@@ -83,7 +87,13 @@ void ManageNamesPage::setModel(WalletModel *walletModel)
     connect(ui->tableView->selectionModel(), &QItemSelectionModel::selectionChanged,
             this, &ManageNamesPage::selectionChanged);
 
+    connect(model, &QAbstractItemModel::rowsInserted,
+            this, &ManageNamesPage::rowCountChanged);
+    connect(model, &QAbstractItemModel::rowsRemoved,
+            this, &ManageNamesPage::rowCountChanged);
+
     selectionChanged();
+    rowCountChanged();
 }
 
 bool ManageNamesPage::eventFilter(QObject *object, QEvent *event)
@@ -107,18 +117,40 @@ void ManageNamesPage::selectionChanged()
 
     QModelIndexList indexes = GUIUtil::getEntryData(ui->tableView, NameTableModel::Name);
 
+    bool anyUnspendableSelected = false;
+    for (const QModelIndex& index : indexes)
+    {
+        const std::string &status = index.sibling(index.row(), NameTableModel::NameStatus).data(Qt::EditRole).toString().toStdString();
+
+        if (status == NameTableEntry::NAME_STATUS_EXPIRED || status == NameTableEntry::NAME_STATUS_TRANSFERRED_OUT)
+        {
+            anyUnspendableSelected = true;
+            break;
+        }
+    }
+
     const bool singleNameSelected = indexes.size() == 1;
     const bool anyNamesSelected = indexes.size() >= 1;
 
     // Context menu
     copyNameAction->setEnabled(singleNameSelected);
     copyValueAction->setEnabled(singleNameSelected);
-    configureNameAction->setEnabled(singleNameSelected);
-    renewNameAction->setEnabled(anyNamesSelected);
+    configureNameAction->setEnabled(singleNameSelected && !anyUnspendableSelected);
+    renewNameAction->setEnabled(anyNamesSelected && !anyUnspendableSelected);
 
     // Buttons
-    ui->configureNameButton->setEnabled(singleNameSelected);
-    ui->renewNameButton->setEnabled(anyNamesSelected);
+    ui->configureNameButton->setEnabled(configureNameAction->isEnabled());
+    ui->renewNameButton->setEnabled(renewNameAction->isEnabled());
+}
+
+void ManageNamesPage::rowCountChanged()
+{
+    if (!model)
+    {
+        return;
+    }
+
+    ui->countLabel->setText(tr("%1 names.").arg(model->rowCount()));
 }
 
 void ManageNamesPage::contextualMenu(const QPoint &point)
@@ -222,16 +254,18 @@ void ManageNamesPage::onRenewNameAction()
     }
 }
 
-void ManageNamesPage::exportClicked()
+void ManageNamesPage::onExport()
 {
+    if (!model) {
+        return;
+    }
+
     // CSV is currently the only supported format
-    QString suffixOut = "";
-    QString filename = GUIUtil::getSaveFileName(
-            this,
-            tr("Export Registered Names Data"),
-            QString(),
-            tr("Comma separated file (*.csv)"),
-            &suffixOut);
+    QString filename = GUIUtil::getSaveFileName(this,
+        tr("Export Name Inventory"), QString(),
+        /*: Expanded name of the CSV file format.
+            See https://en.wikipedia.org/wiki/Comma-separated_values */
+        tr("Comma separated file") + QLatin1String(" (*.csv)"), nullptr);
 
     if (filename.isNull())
         return;
@@ -240,14 +274,17 @@ void ManageNamesPage::exportClicked()
 
     // name, column, role
     writer.setModel(proxyModel);
-    writer.addColumn("Name", NameTableModel::Name, Qt::EditRole);
-    writer.addColumn("Value", NameTableModel::Value, Qt::EditRole);
-    writer.addColumn("Expires In", NameTableModel::ExpiresIn, Qt::EditRole);
-    writer.addColumn("Name Status", NameTableModel::NameStatus, Qt::EditRole);
+    writer.addColumn(tr("Name"), NameTableModel::Name, Qt::EditRole);
+    writer.addColumn(tr("Value"), NameTableModel::Value, Qt::EditRole);
+    writer.addColumn(tr("Expires In"), NameTableModel::ExpiresIn, Qt::EditRole);
+    writer.addColumn(tr("Name Status"), NameTableModel::NameStatus, Qt::EditRole);
 
-    if (!writer.write())
-    {
-        QMessageBox::critical(this, tr("Error exporting"), tr("Could not write to file %1.").arg(filename),
-                              QMessageBox::Abort, QMessageBox::Abort);
+    if(!writer.write()) {
+        Q_EMIT message(tr("Exporting Failed"), tr("There was an error trying to save the name inventory to %1.").arg(filename),
+            CClientUIInterface::MSG_ERROR);
+    }
+    else {
+        Q_EMIT message(tr("Exporting Successful"), tr("The name inventory was successfully saved to %1.").arg(filename),
+            CClientUIInterface::MSG_INFORMATION);
     }
 }

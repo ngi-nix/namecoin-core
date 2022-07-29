@@ -1,10 +1,11 @@
-// Copyright (c) 2011-2020 The Bitcoin Core developers
+// Copyright (c) 2011-2021 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <qt/transactiontablemodel.h>
 
 #include <qt/addresstablemodel.h>
+#include <qt/bitcoinunits.h>
 #include <qt/clientmodel.h>
 #include <qt/guiconstants.h>
 #include <qt/guiutil.h>
@@ -16,6 +17,7 @@
 
 #include <core_io.h>
 #include <interfaces/handler.h>
+#include <names/applications.h>
 #include <uint256.h>
 
 #include <algorithm>
@@ -32,11 +34,11 @@
 
 // Amount column is right-aligned it contains numbers
 static int column_alignments[] = {
-        Qt::AlignLeft|Qt::AlignVCenter, /* status */
-        Qt::AlignLeft|Qt::AlignVCenter, /* watchonly */
-        Qt::AlignLeft|Qt::AlignVCenter, /* date */
-        Qt::AlignLeft|Qt::AlignVCenter, /* type */
-        Qt::AlignLeft|Qt::AlignVCenter, /* address */
+        Qt::AlignLeft|Qt::AlignVCenter, /*status=*/
+        Qt::AlignLeft|Qt::AlignVCenter, /*watchonly=*/
+        Qt::AlignLeft|Qt::AlignVCenter, /*date=*/
+        Qt::AlignLeft|Qt::AlignVCenter, /*type=*/
+        Qt::AlignLeft|Qt::AlignVCenter, /*address=*/
         Qt::AlignRight|Qt::AlignVCenter /* amount */
     };
 
@@ -61,7 +63,7 @@ struct TxLessThan
 struct TransactionNotification
 {
 public:
-    TransactionNotification() {}
+    TransactionNotification() = default;
     TransactionNotification(uint256 _hash, ChangeType _status, bool _showTransaction):
         hash(_hash), status(_status), showTransaction(_showTransaction) {}
 
@@ -232,7 +234,7 @@ public:
         return nullptr;
     }
 
-    QString describe(interfaces::Node& node, interfaces::Wallet& wallet, TransactionRecord *rec, int unit)
+    QString describe(interfaces::Node& node, interfaces::Wallet& wallet, TransactionRecord* rec, BitcoinUnit unit)
     {
         return TransactionDesc::toHTML(node, wallet, rec, unit);
     }
@@ -316,12 +318,6 @@ QString TransactionTableModel::formatTxStatus(const TransactionRecord *wtx) cons
 
     switch(wtx->status.status)
     {
-    case TransactionStatus::OpenUntilBlock:
-        status = tr("Open for %n more block(s)","",wtx->status.open_for);
-        break;
-    case TransactionStatus::OpenUntilDate:
-        status = tr("Open until %1").arg(GUIUtil::dateTimeStr(wtx->status.open_for));
-        break;
     case TransactionStatus::Unconfirmed:
         status = tr("Unconfirmed");
         break;
@@ -391,7 +387,52 @@ QString TransactionTableModel::formatTxType(const TransactionRecord *wtx) const
     case TransactionRecord::Generated:
         return tr("Mined");
     case TransactionRecord::NameOp:
-        return tr("Name operation");
+    {
+        QString namespaceStrCap;
+        QString namespaceStrLow;
+        switch(wtx->nameNamespace)
+        {
+        case NameNamespace::Domain:
+            namespaceStrCap = tr("Domain");
+            namespaceStrLow = tr("domain");
+            break;
+        case NameNamespace::DomainData:
+            namespaceStrCap = tr("Domain data");
+            namespaceStrLow = tr("domain data");
+            break;
+        case NameNamespace::Identity:
+            namespaceStrCap = tr("Identity");
+            namespaceStrLow = tr("identity");
+            break;
+        case NameNamespace::IdentityData:
+            namespaceStrCap = tr("Identity data");
+            namespaceStrLow = tr("identity data");
+            break;
+        case NameNamespace::NonStandard:
+            namespaceStrCap = tr("Non-standard name");
+            namespaceStrLow = tr("non-standard name");
+            break;
+        }
+
+        switch(wtx->nameOpType)
+        {
+        case TransactionRecord::NameOpType::New:
+            return tr("Name pre-registration");
+        case TransactionRecord::NameOpType::FirstUpdate:
+            return tr("%1 registration").arg(namespaceStrCap);
+        case TransactionRecord::NameOpType::Update:
+            return tr("%1 update").arg(namespaceStrCap);
+        case TransactionRecord::NameOpType::Renew:
+            return tr("%1 renewal").arg(namespaceStrCap);
+        case TransactionRecord::NameOpType::Recv:
+            return tr("Received %1").arg(namespaceStrLow);
+        case TransactionRecord::NameOpType::Send:
+            return tr("Sent %1").arg(namespaceStrLow);
+        case TransactionRecord::NameOpType::Other:
+            return tr("Unknown name operation");
+        } // no default case, so the compiler can warn about missing cases
+        assert(false);
+    }
     default:
         return QString();
     }
@@ -410,6 +451,7 @@ QVariant TransactionTableModel::txAddressDecoration(const TransactionRecord *wtx
     case TransactionRecord::SendToOther:
         return QIcon(":/icons/tx_output");
     case TransactionRecord::NameOp:
+        // TODO: Use nameOpType here
         return QIcon(":/icons/bitcoin_transparent_letter");
     default:
         return QIcon(":/icons/tx_inout");
@@ -480,9 +522,6 @@ QVariant TransactionTableModel::txStatusDecoration(const TransactionRecord *wtx)
 {
     switch(wtx->status.status)
     {
-    case TransactionStatus::OpenUntilBlock:
-    case TransactionStatus::OpenUntilDate:
-        return COLOR_TX_STATUS_OPENUNTILDATE;
     case TransactionStatus::Unconfirmed:
         return QIcon(":/icons/transaction_0");
     case TransactionStatus::Abandoned:
@@ -616,7 +655,7 @@ QVariant TransactionTableModel::data(const QModelIndex &index, int role) const
     case TypeRole:
         return rec->type;
     case DateRole:
-        return QDateTime::fromTime_t(static_cast<uint>(rec->time));
+        return QDateTime::fromSecsSinceEpoch(rec->time);
     case WatchonlyRole:
         return rec->involvesWatchAddress;
     case WatchonlyDecorationRole:
@@ -636,7 +675,7 @@ QVariant TransactionTableModel::data(const QModelIndex &index, int role) const
     case TxPlainTextRole:
         {
             QString details;
-            QDateTime date = QDateTime::fromTime_t(static_cast<uint>(rec->time));
+            QDateTime date = QDateTime::fromSecsSinceEpoch(rec->time);
             QString txLabel = walletModel->getAddressTableModel()->labelForAddress(QString::fromStdString(rec->address));
 
             details.append(date.toString("M/d/yy HH:mm"));

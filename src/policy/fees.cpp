@@ -1,19 +1,35 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2020 The Bitcoin Core developers
+// Copyright (c) 2009-2021 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <policy/fees.h>
 
 #include <clientversion.h>
+#include <consensus/amount.h>
 #include <fs.h>
 #include <logging.h>
+#include <policy/feerate.h>
+#include <primitives/transaction.h>
+#include <random.h>
+#include <serialize.h>
 #include <streams.h>
+#include <sync.h>
+#include <tinyformat.h>
 #include <txmempool.h>
+#include <uint256.h>
 #include <util/serfloat.h>
 #include <util/system.h>
+#include <util/time.h>
 
-static const char* FEE_ESTIMATES_FILENAME = "fee_estimates.dat";
+#include <algorithm>
+#include <cassert>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <exception>
+#include <stdexcept>
+#include <utility>
 
 static constexpr double INF_FEERATE = 1e99;
 
@@ -493,6 +509,12 @@ void TxConfirmStats::removeTx(unsigned int entryHeight, unsigned int nBestSeenHe
 bool CBlockPolicyEstimator::removeTx(uint256 hash, bool inBlock)
 {
     LOCK(m_cs_fee_estimator);
+    return _removeTx(hash, inBlock);
+}
+
+bool CBlockPolicyEstimator::_removeTx(const uint256& hash, bool inBlock)
+{
+    AssertLockHeld(m_cs_fee_estimator);
     std::map<uint256, TxStatsInfo>::iterator pos = mapMemPoolTxs.find(hash);
     if (pos != mapMemPoolTxs.end()) {
         feeStats->removeTx(pos->second.blockHeight, nBestSeenHeight, pos->second.bucketIndex, inBlock);
@@ -505,8 +527,8 @@ bool CBlockPolicyEstimator::removeTx(uint256 hash, bool inBlock)
     }
 }
 
-CBlockPolicyEstimator::CBlockPolicyEstimator()
-    : nBestSeenHeight(0), firstRecordedHeight(0), historicalFirst(0), historicalBest(0), trackedTxs(0), untrackedTxs(0)
+CBlockPolicyEstimator::CBlockPolicyEstimator(const fs::path& estimation_filepath)
+    : m_estimation_filepath{estimation_filepath}, nBestSeenHeight{0}, firstRecordedHeight{0}, historicalFirst{0}, historicalBest{0}, trackedTxs{0}, untrackedTxs{0}
 {
     static_assert(MIN_BUCKET_FEERATE > 0, "Min feerate must be nonzero");
     size_t bucketIndex = 0;
@@ -524,16 +546,13 @@ CBlockPolicyEstimator::CBlockPolicyEstimator()
     longStats = std::unique_ptr<TxConfirmStats>(new TxConfirmStats(buckets, bucketMap, LONG_BLOCK_PERIODS, LONG_DECAY, LONG_SCALE));
 
     // If the fee estimation file is present, read recorded estimations
-    fs::path est_filepath = gArgs.GetDataDirNet() / FEE_ESTIMATES_FILENAME;
-    CAutoFile est_file(fsbridge::fopen(est_filepath, "rb"), SER_DISK, CLIENT_VERSION);
+    CAutoFile est_file(fsbridge::fopen(m_estimation_filepath, "rb"), SER_DISK, CLIENT_VERSION);
     if (est_file.IsNull() || !Read(est_file)) {
-        LogPrintf("Failed to read fee estimates from %s. Continue anyway.\n", est_filepath.string());
+        LogPrintf("Failed to read fee estimates from %s. Continue anyway.\n", fs::PathToString(m_estimation_filepath));
     }
 }
 
-CBlockPolicyEstimator::~CBlockPolicyEstimator()
-{
-}
+CBlockPolicyEstimator::~CBlockPolicyEstimator() = default;
 
 void CBlockPolicyEstimator::processTransaction(const CTxMemPoolEntry& entry, bool validFeeEstimate)
 {
@@ -549,7 +568,7 @@ void CBlockPolicyEstimator::processTransaction(const CTxMemPoolEntry& entry, boo
     if (txHeight != nBestSeenHeight) {
         // Ignore side chains and re-orgs; assuming they are random they don't
         // affect the estimate.  We'll potentially double count transactions in 1-block reorgs.
-        // Ignore txs if BlockPolicyEstimator is not in sync with ::ChainActive().Tip().
+        // Ignore txs if BlockPolicyEstimator is not in sync with ActiveChain().Tip().
         // It will be synced next time a block is processed.
         return;
     }
@@ -576,7 +595,8 @@ void CBlockPolicyEstimator::processTransaction(const CTxMemPoolEntry& entry, boo
 
 bool CBlockPolicyEstimator::processBlockTx(unsigned int nBlockHeight, const CTxMemPoolEntry* entry)
 {
-    if (!removeTx(entry->GetTx().GetHash(), true)) {
+    AssertLockHeld(m_cs_fee_estimator);
+    if (!_removeTx(entry->GetTx().GetHash(), true)) {
         // This transaction wasn't being tracked for fee estimation
         return false;
     }
@@ -884,10 +904,9 @@ CFeeRate CBlockPolicyEstimator::estimateSmartFee(int confTarget, FeeCalculation 
 void CBlockPolicyEstimator::Flush() {
     FlushUnconfirmed();
 
-    fs::path est_filepath = gArgs.GetDataDirNet() / FEE_ESTIMATES_FILENAME;
-    CAutoFile est_file(fsbridge::fopen(est_filepath, "wb"), SER_DISK, CLIENT_VERSION);
+    CAutoFile est_file(fsbridge::fopen(m_estimation_filepath, "wb"), SER_DISK, CLIENT_VERSION);
     if (est_file.IsNull() || !Write(est_file)) {
-        LogPrintf("Failed to write fee estimates to %s. Continue anyway.\n", est_filepath.string());
+        LogPrintf("Failed to write fee estimates to %s. Continue anyway.\n", fs::PathToString(m_estimation_filepath));
     }
 }
 
@@ -985,7 +1004,7 @@ void CBlockPolicyEstimator::FlushUnconfirmed() {
     // Remove every entry in mapMemPoolTxs
     while (!mapMemPoolTxs.empty()) {
         auto mi = mapMemPoolTxs.begin();
-        removeTx(mi->first, false); // this calls erase() on mapMemPoolTxs
+        _removeTx(mi->first, false); // this calls erase() on mapMemPoolTxs
     }
     int64_t endclear = GetTimeMicros();
     LogPrint(BCLog::ESTIMATEFEE, "Recorded %u unconfirmed txs from mempool in %gs\n", num_entries, (endclear - startclear)*0.000001);

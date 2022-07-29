@@ -1,13 +1,16 @@
-// Copyright (c) 2018-2020 The Bitcoin Core developers
+// Copyright (c) 2018-2021 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <map>
 
 #include <dbwrapper.h>
+#include <hash.h>
 #include <index/blockfilterindex.h>
 #include <node/blockstorage.h>
 #include <util/system.h>
+
+using node::UndoReadFromDisk;
 
 /* The index database stores three items for each block: the disk location of the encoded filter,
  * its dSHA256 hash, and the header. Those belonging to blocks on the active chain are indexed by
@@ -98,7 +101,7 @@ BlockFilterIndex::BlockFilterIndex(BlockFilterType filter_type,
     const std::string& filter_name = BlockFilterTypeName(filter_type);
     if (filter_name.empty()) throw std::invalid_argument("unknown filter_type");
 
-    fs::path path = gArgs.GetDataDirNet() / "indexes" / "blockfilter" / filter_name;
+    fs::path path = gArgs.GetDataDirNet() / "indexes" / "blockfilter" / fs::u8path(filter_name);
     fs::create_directories(path);
 
     m_name = filter_name + " block filter index";
@@ -141,18 +144,22 @@ bool BlockFilterIndex::CommitInternal(CDBBatch& batch)
     return BaseIndex::CommitInternal(batch);
 }
 
-bool BlockFilterIndex::ReadFilterFromDisk(const FlatFilePos& pos, BlockFilter& filter) const
+bool BlockFilterIndex::ReadFilterFromDisk(const FlatFilePos& pos, const uint256& hash, BlockFilter& filter) const
 {
     CAutoFile filein(m_filter_fileseq->Open(pos, true), SER_DISK, CLIENT_VERSION);
     if (filein.IsNull()) {
         return false;
     }
 
+    // Check that the hash of the encoded_filter matches the one stored in the db.
     uint256 block_hash;
     std::vector<uint8_t> encoded_filter;
     try {
         filein >> block_hash >> encoded_filter;
-        filter = BlockFilter(GetFilterType(), block_hash, std::move(encoded_filter));
+        uint256 result;
+        CHash256().Write(encoded_filter).Finalize(result);
+        if (result != hash) return error("Checksum mismatch in filter decode.");
+        filter = BlockFilter(GetFilterType(), block_hash, std::move(encoded_filter), /*skip_decode_check=*/true);
     }
     catch (const std::exception& e) {
         return error("%s: Failed to deserialize block filter from disk: %s", __func__, e.what());
@@ -379,7 +386,7 @@ bool BlockFilterIndex::LookupFilter(const CBlockIndex* block_index, BlockFilter&
         return false;
     }
 
-    return ReadFilterFromDisk(entry.pos, filter_out);
+    return ReadFilterFromDisk(entry.pos, entry.hash, filter_out);
 }
 
 bool BlockFilterIndex::LookupFilterHeader(const CBlockIndex* block_index, uint256& header_out)
@@ -423,7 +430,7 @@ bool BlockFilterIndex::LookupFilterRange(int start_height, const CBlockIndex* st
     filters_out.resize(entries.size());
     auto filter_pos_it = filters_out.begin();
     for (const auto& entry : entries) {
-        if (!ReadFilterFromDisk(entry.pos, *filter_pos_it)) {
+        if (!ReadFilterFromDisk(entry.pos, entry.hash, *filter_pos_it)) {
             return false;
         }
         ++filter_pos_it;

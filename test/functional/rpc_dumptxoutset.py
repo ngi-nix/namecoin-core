@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2019-2020 The Bitcoin Core developers
+# Copyright (c) 2019-2021 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test the generation of UTXO snapshots using `dumptxoutset`.
@@ -23,7 +23,7 @@ class DumptxoutsetTest(BitcoinTestFramework):
         node = self.nodes[0]
         mocktime = node.getblockheader(node.getblockhash(0))['time'] + 1
         node.setmocktime(mocktime)
-        node.generate(COINBASE_MATURITY)
+        self.generate(node, COINBASE_MATURITY)
 
         FILENAME = 'txoutset.dat'
         out = node.dumptxoutset(FILENAME)
@@ -37,17 +37,25 @@ class DumptxoutsetTest(BitcoinTestFramework):
         # Blockhash should be deterministic based on mocked time.
         assert_equal(
             out['base_hash'],
-            'cd4a86930f745733bb164e22c1e94fe5d83fdf0f156861789d1d0b9ca094df89')
+            'ef4526133e4eaa9ee88b2e5c3fd49a6dd1cb6a282b49dc6d8ea6334786eeb829')
 
         with open(str(expected_path), 'rb') as f:
             digest = hashlib.sha256(f.read()).hexdigest()
             # UTXO snapshot hash should be deterministic based on mocked time.
             assert_equal(
-                digest, 'd886c013424222428db1ff66b7d0fe0289de55bde085a469b3e12b653add6c71')
+                digest, '69edbefdd3e951378cc480652d1a3092789aa6cc92435f415fd0c48ccda6646f')
 
-        # Specifying a path to an existing file will fail.
+        assert_equal(
+            out['txoutset_hash'], '8f24c0bc714b85bf5c104f478f1948e691a5da934515a966e8eb2940adf4d6c7')
+        assert_equal(out['nchaintx'], 101)
+
+        # Specifying a path to an existing or invalid file will fail.
         assert_raises_rpc_error(
             -8, '{} already exists'.format(FILENAME),  node.dumptxoutset, FILENAME)
+        invalid_path = str(Path(node.datadir) / "invalid" / "path")
+        assert_raises_rpc_error(
+            -8, "Couldn't open file {}.incomplete for writing".format(invalid_path), node.dumptxoutset, invalid_path)
+
 
 if __name__ == '__main__':
     DumptxoutsetTest().main()

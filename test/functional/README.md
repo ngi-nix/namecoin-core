@@ -24,7 +24,7 @@ don't have test cases for.
   Consider using [pyenv](https://github.com/pyenv/pyenv), which checks [.python-version](/.python-version),
   to prevent accidentally introducing modern syntax from an unsupported Python version.
   The CI linter job also checks this, but [possibly not in all cases](https://github.com/bitcoin/bitcoin/pull/14884#discussion_r239585126).
-- See [the python lint script](/test/lint/lint-python.sh) that checks for violations that
+- See [the python lint script](/test/lint/lint-python.py) that checks for violations that
   could lead to bugs and issues in the test code.
 - Use [type hints](https://docs.python.org/3/library/typing.html) in your code to improve code readability
   and to detect possible bugs earlier.
@@ -188,5 +188,5 @@ perf report -i /path/to/datadir/send-big-msgs.perf.data.xxxx --stdio | c++filt |
 #### See also:
 
 - [Installing perf](https://askubuntu.com/q/50145)
-- [Perf examples](http://www.brendangregg.com/perf.html)
+- [Perf examples](https://www.brendangregg.com/perf.html)
 - [Hotspot](https://github.com/KDAB/hotspot): a GUI for perf output analysis
