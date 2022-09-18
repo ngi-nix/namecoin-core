@@ -76,7 +76,6 @@ in stdenv.mkDerivation rec {
       make -j 4
     '';
 
-    installPhase = '' make install '';
 
     postInstall = optionalString withGui ''
         install -Dm644 ${desktop} $out/share/applications/namecoin-qt.desktop
