@@ -73,7 +73,7 @@ in stdenv.mkDerivation rec {
     postConfigure = "make qmake_all";
 
     buildPhase = '' 
-      make -j 4
+      make -j $NIX_BUILD_CORES
     '';
 
 
