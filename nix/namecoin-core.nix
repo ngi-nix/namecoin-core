@@ -38,6 +38,7 @@ in stdenv.mkDerivation rec {
   pname = "namecoin-core";
   # TODO: find a better way to determine version, but it doesn't seem to be version controlled
   version = "0.21.1";
+  version = "23.0";
 
   src = cleanedSource;
 
