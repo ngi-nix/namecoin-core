@@ -32,14 +32,11 @@ let
     url = "https://raw.githubusercontent.com/bitcoin-core/packaging/${version}/debian/bitcoin-qt.desktop";
     sha256 = "0a46bbadda140599e807be38999e6848c89f9c3523d26fede02d34d62d50f632";
   };
-
   inherit (libsForQt5.qt5) qtbase qttools qmake wrapQtAppsHook;
+
 in stdenv.mkDerivation rec {
   pname = "namecoin-core";
-  # TODO: find a better way to determine version, but it doesn't seem to be version controlled
-  version = "0.21.1";
   version = "23.0";
-
   src = cleanedSource;
 
   nativeBuildInputs = [ pkg-config autoreconfHook boost wrapQtAppsHook ]
