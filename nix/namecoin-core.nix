@@ -58,10 +58,13 @@ in stdenv.mkDerivation rec {
         "--with-qt-bindir=${qtbase.dev}/bin:${qttools.dev}/bin"
       ];
 
-    configurePhase = ''
-        ./autogen.sh
-        ./configure --enable-cxx --without-bdb --disable-shared --prefix=${db48}/bin --with-boost=${boost} --with-boost-libdir=${boost}/lib --prefix=$out
-    '';
+  preConfigure = ''
+      ./autogen.sh
+  '';
+
+  configurePhase = ''
+      ./configure --enable-cxx --without-bdb --disable-shared --prefix=${db48}/bin --with-boost=${boost} --with-boost-libdir=${boost}/lib --prefix=$out
+  '';
 
     QT_PLUGIN_PATH = if withGui then "${qtbase}/${qtbase.qtPluginPrefix}" else null;
     LRELEASE = "${qttools.dev}/bin/lrelease";
@@ -73,7 +76,6 @@ in stdenv.mkDerivation rec {
     buildPhase = '' 
       make -j $NIX_BUILD_CORES
     '';
-
 
     postInstall = optionalString withGui ''
         install -Dm644 ${desktop} $out/share/applications/namecoin-qt.desktop
