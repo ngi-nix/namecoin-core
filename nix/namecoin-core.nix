@@ -29,8 +29,8 @@ let
   filterSource = nix-gitignore.gitignoreSource additionalFilters;
   cleanedSource = filterSource ../.;
   desktop = builtins.fetchurl {
-    url = "https://raw.githubusercontent.com/bitcoin-core/packaging/0.21/debian/bitcoin-qt.desktop";
-    sha256 = "0cpna0nxcd1dw3nnzli36nf9zj28d2g9jf5y0zl9j18lvanvniha";
+    url = "https://raw.githubusercontent.com/bitcoin-core/packaging/${version}/debian/bitcoin-qt.desktop";
+    sha256 = "0a46bbadda140599e807be38999e6848c89f9c3523d26fede02d34d62d50f632";
   };
 
   inherit (libsForQt5.qt5) qtbase qttools qmake wrapQtAppsHook;
